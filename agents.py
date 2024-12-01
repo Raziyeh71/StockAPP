@@ -1,15 +1,27 @@
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import SystemMessage, HumanMessage
+from langgraph.graph import Graph, StateGraph
+from langgraph.prebuilt import ToolExecutor
+from langchain.memory import ConversationBufferMemory
+from langchain_core.messages import AIMessage, HumanMessage
 import finnhub
 import pandas as pd
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 import time
-from typing import List, Dict
+from typing import List, Dict, Tuple, Annotated, TypedDict, Union, Any
+from operator import itemgetter
 
 load_dotenv()
+
+class AgentState(TypedDict):
+    """State for the stock analysis workflow"""
+    messages: List[Union[HumanMessage, AIMessage]]
+    stock_data: Dict[str, pd.DataFrame]
+    current_analysis: Dict[str, Any]
+    memory: Dict[str, Any]
 
 class StockAgent:
     def __init__(self, model="gpt-3.5-turbo", temperature=0.7):
@@ -19,6 +31,11 @@ class StockAgent:
             request_timeout=30
         )
         self.finnhub_client = finnhub.Client(api_key=os.getenv('FINNHUB_API_KEY'))
+        self.memory = ConversationBufferMemory(
+            return_messages=True,
+            memory_key="chat_history",
+            output_key="output"
+        )
 
     def get_stock_data(self, symbol: str, days: int = 30) -> pd.DataFrame:
         """Fetch stock data with retry logic"""
@@ -48,96 +65,126 @@ class StockAgent:
         return None
 
 class StockSuggestionAgent(StockAgent):
-    def analyze_market(self, top_stocks: List[str]) -> Dict:
-        """First agent that suggests most profitable stocks"""
-        stocks_data = {}
-        for symbol in top_stocks:
-            data = self.get_stock_data(symbol)
-            if data is not None:
-                stocks_data[symbol] = data
-        
-        analysis_prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are a professional stock market analyst. 
-            Analyze the provided stock data and suggest which stock has the highest 
-            potential for profit in the short term. Focus on recent trends, 
-            momentum, and volatility."""),
-            HumanMessage(content=f"Stock data: {stocks_data}")
+    def __init__(self, model="gpt-3.5-turbo"):
+        super().__init__(model=model)
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a stock market expert. Analyze the provided stocks and suggest the most promising ones."),
+            ("human", "Please analyze these stocks: {stock_list}. Consider market trends, technical indicators, and recent performance."),
         ])
+
+    def analyze_market(self, state: AgentState) -> AgentState:
+        """Analyze market conditions and suggest promising stocks"""
+        stock_list = list(state["stock_data"].keys())
+        chain = self.prompt | self.llm
         
-        response = self.llm(analysis_prompt.format_messages())
-        return {
-            "suggestion": response.content,
-            "data": stocks_data
-        }
+        response = chain.invoke({"stock_list": ", ".join(stock_list)})
+        state["current_analysis"]["suggestion"] = response.content
+        
+        # Update memory
+        self.memory.save_context(
+            {"input": f"Analyzed stocks: {', '.join(stock_list)}"},
+            {"output": response.content}
+        )
+        state["memory"]["suggestion"] = self.memory.load_memory_variables({})
+        
+        return state
 
 class StockPredictionAgent(StockAgent):
-    def predict_performance(self, symbol: str, data: pd.DataFrame) -> Dict:
-        """Second agent that predicts profit potential and timeframe"""
-        prediction_prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are a stock market prediction expert.
-            Analyze the stock data and provide:
-            1. Expected profit percentage
-            2. Optimal timeframe for the investment
-            3. Key factors supporting your prediction
-            Be specific with numbers and timeframes."""),
-            HumanMessage(content=f"Stock: {symbol}\nData: {data.to_dict()}")
+    def __init__(self, model="gpt-3.5-turbo"):
+        super().__init__(model=model)
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a stock prediction expert. Analyze the data and provide detailed profit potential analysis."),
+            ("human", "Based on the data for {symbol}, predict the profit potential and optimal timeframe."),
         ])
+
+    def predict_performance(self, state: AgentState) -> AgentState:
+        """Predict profit potential and timeframe"""
+        suggestion = state["current_analysis"].get("suggestion", "")
         
-        response = self.llm(prediction_prompt.format_messages())
-        return {
-            "prediction": response.content,
-            "symbol": symbol
-        }
+        chain = self.prompt | self.llm
+        response = chain.invoke({"symbol": suggestion})
+        state["current_analysis"]["prediction"] = response.content
+        
+        # Update memory
+        self.memory.save_context(
+            {"input": f"Predicted performance for suggested stocks"},
+            {"output": response.content}
+        )
+        state["memory"]["prediction"] = self.memory.load_memory_variables({})
+        
+        return state
 
 class StockCriticAgent(StockAgent):
-    def critique_prediction(self, prediction: Dict, data: pd.DataFrame) -> Dict:
-        """Third agent that critiques the prediction"""
-        critique_prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are a skeptical stock market analyst.
-            Your job is to critically evaluate the given prediction and identify:
-            1. Potential risks and downsides
-            2. Market factors that might invalidate the prediction
-            3. Alternative scenarios to consider
-            Be specific and data-driven in your critique."""),
-            HumanMessage(content=f"Prediction: {prediction}\nData: {data.to_dict()}")
+    def __init__(self, model="gpt-3.5-turbo"):
+        super().__init__(model=model)
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a critical analyst. Review the stock predictions and identify potential risks or oversights."),
+            ("human", "Review this prediction and provide a critical analysis: {prediction}"),
         ])
+
+    def critique_prediction(self, state: AgentState) -> AgentState:
+        """Critique the prediction and identify risks"""
+        prediction = state["current_analysis"].get("prediction", "")
         
-        response = self.llm(critique_prompt.format_messages())
-        return {
-            "critique": response.content,
-            "symbol": prediction["symbol"]
-        }
+        chain = self.prompt | self.llm
+        response = chain.invoke({"prediction": prediction})
+        state["current_analysis"]["critique"] = response.content
+        
+        # Update memory
+        self.memory.save_context(
+            {"input": "Critiqued the stock prediction"},
+            {"output": response.content}
+        )
+        state["memory"]["critique"] = self.memory.load_memory_variables({})
+        
+        return state
 
 class StockAnalysisOrchestrator:
     def __init__(self):
-        self.suggestion_agent = StockSuggestionAgent(model="gpt-3.5-turbo")
-        self.prediction_agent = StockPredictionAgent(model="gpt-3.5-turbo")
-        self.critic_agent = StockCriticAgent(model="gpt-3.5-turbo")
+        self.suggestion_agent = StockSuggestionAgent()
+        self.prediction_agent = StockPredictionAgent()
+        self.critic_agent = StockCriticAgent()
         
+        # Create the LangGraph workflow
+        workflow = StateGraph(AgentState)
+        
+        # Add nodes
+        workflow.add_node("suggest", self.suggestion_agent.analyze_market)
+        workflow.add_node("predict", self.prediction_agent.predict_performance)
+        workflow.add_node("critique", self.critic_agent.critique_prediction)
+        
+        # Add edges
+        workflow.add_edge('suggest', 'predict')
+        workflow.add_edge('predict', 'critique')
+        
+        # Set entry and exit points
+        workflow.set_entry_point("suggest")
+        workflow.set_finish_point("critique")
+        
+        self.graph = workflow.compile()
+    
     def analyze_stocks(self, stock_list: List[str]) -> Dict:
-        """Orchestrate the multi-agent analysis process"""
-        try:
-            # Step 1: Get stock suggestions
-            suggestion_result = self.suggestion_agent.analyze_market(stock_list)
-            
-            # Step 2: Get detailed prediction for suggested stock
-            prediction_result = self.prediction_agent.predict_performance(
-                suggestion_result["suggestion"],
-                suggestion_result["data"][suggestion_result["suggestion"]]
-            )
-            
-            # Step 3: Get critique of the prediction
-            critique_result = self.critic_agent.critique_prediction(
-                prediction_result,
-                suggestion_result["data"][suggestion_result["suggestion"]]
-            )
-            
-            return {
-                "suggestion": suggestion_result["suggestion"],
-                "prediction": prediction_result["prediction"],
-                "critique": critique_result["critique"]
-            }
-            
-        except Exception as e:
-            print(f"Error in analysis: {str(e)}")
-            return None
+        """Run the full stock analysis workflow"""
+        # Initialize state
+        state = AgentState(
+            messages=[],
+            stock_data={},
+            current_analysis={},
+            memory={}
+        )
+        
+        # Fetch stock data
+        for symbol in stock_list:
+            data = self.suggestion_agent.get_stock_data(symbol)
+            if data is not None:
+                state["stock_data"][symbol] = data
+        
+        # Run the workflow
+        final_state = self.graph.invoke(state)
+        
+        return {
+            "suggestion": final_state["current_analysis"].get("suggestion", ""),
+            "prediction": final_state["current_analysis"].get("prediction", ""),
+            "critique": final_state["current_analysis"].get("critique", ""),
+            "memory": final_state["memory"]
+        }

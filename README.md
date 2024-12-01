@@ -1,62 +1,70 @@
-# AI Stock Predictor
+# StockAPP - Advanced AI Stock Prediction System
 
-A cutting-edge stock prediction system that combines LangGraph, Prophet, and advanced AI analysis to provide intelligent stock trading recommendations.
+An advanced stock prediction system that uses multiple AI agents, LangGraph workflow, and Prophet forecasting to provide comprehensive stock market analysis.
 
-## Features
+## 🚀 Features
 
-- Real-time stock data fetching using Finnhub API
-- Advanced time series forecasting with Facebook Prophet
-- Intelligent market analysis using LangGraph and GPT-4
-- Technical and sentiment analysis
-- Interactive web interface with Streamlit
-- Trading signals generation
-- Comprehensive investment recommendations
+- Multi-Agent Analysis System:
+  - Stock Suggestion Agent: Identifies promising stocks
+  - Stock Prediction Agent: Forecasts performance
+  - Stock Critique Agent: Provides critical evaluation
+- Advanced Technologies:
+  - LangGraph for agent workflow orchestration
+  - Prophet for time series forecasting
+  - Finnhub API for real-time market data
+  - Memory-enabled agents for context retention
+- Interactive Streamlit Interface
 
-## Setup
+## 🛠️ Installation
 
-1. Clone the repository
-2. Create a virtual environment:
+1. Clone the repository:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+git clone https://github.com/Raziyeh71/StockAPP.git
+cd StockAPP
 ```
 
-3. Install dependencies:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file with your API keys:
+3. Set up environment variables:
+```bash
+cp .env.example .env
 ```
-OPENAI_API_KEY=your_openai_api_key_here
-FINNHUB_API_KEY=your_finnhub_api_key_here
-```
+Then edit `.env` with your API keys:
+- OPENAI_API_KEY=your_openai_api_key
+- FINNHUB_API_KEY=your_finnhub_api_key
 
-5. Run the application:
+## 🚀 Usage
+
+Run the Streamlit app:
 ```bash
 streamlit run app.py
 ```
 
-## Usage
+## 🔧 Technologies Used
 
-1. Enter a stock symbol (e.g., AAPL, GOOGL)
-2. Adjust the prediction timeframe
-3. Click "Analyze Stock"
-4. View predictions, trading signals, and AI analysis
+- LangGraph
+- LangChain
+- OpenAI GPT Models
+- Prophet
+- Finnhub API
+- Streamlit
+- Pandas
+- Plotly
 
-## Components
+## 📊 How It Works
 
-- `stock_data.py`: Handles data fetching from Finnhub
-- `stock_predictor.py`: Implements Prophet-based prediction
-- `stock_analyzer.py`: Contains LangGraph workflow for analysis
-- `app.py`: Streamlit web interface
+1. **Stock Suggestion**: The first agent analyzes market data to identify promising stocks.
+2. **Performance Prediction**: Using Prophet and AI analysis, predicts potential returns and optimal timeframes.
+3. **Critical Analysis**: A dedicated agent evaluates predictions and identifies potential risks.
+4. **Memory Integration**: All agents maintain context through conversation memory.
 
-## Requirements
+## 🤝 Contributing
 
-- Python 3.8+
-- OpenAI API key
-- Finnhub API key
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📝 License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

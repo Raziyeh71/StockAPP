@@ -1,0 +1,10 @@
+langgraph>=0.0.10
+langchain>=0.1.0
+langchain-openai>=0.0.2
+finnhub-python>=2.4.18
+prophet>=1.1.5
+pandas>=2.1.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+streamlit>=1.29.0
+plotly>=5.18.0
